@@ -1,0 +1,205 @@
+import java_cup.runtime.*;
+import erros.ListaErros;
+
+parser code {:
+    public void syntax_error(Symbol s){ }
+
+
+
+    public void unrecovered_syntax_error(Symbol cur_token){ }
+
+    public void defineErro(int linha, int coluna, String texto) {
+        scanner.Scanner sc = (scanner.Scanner) this.getScanner();
+        sc.defineErro(linha, coluna, texto);
+    }
+
+    public void defineErro(int linha, int coluna){
+        scanner.Scanner sc = (scanner.Scanner) this.getScanner();
+        sc.defineErro(linha, coluna);
+    }
+
+    public void defineErro(String texto){
+        scanner.Scanner sc = (scanner.Scanner) this.getScanner();
+        sc.defineErro(texto);
+    }
+
+    protected int error_sync_size() { return 1; }
+:};
+
+/* TERMINAIS */
+terminal KW_IF, KW_ELSE, KW_WHILE, KW_RETURN, KW_INT, KW_DOUBLE, KW_FLOAT;
+terminal KW_PROGRAM, KW_VOID, KW_PRINT, KW_READ, KW_FINAL, KW_CLASS;
+terminal ABREPAR, FECHAPAR, ABRECHAVE, FECHACHAVE, PTVIRG, VIRGULA, PONTO;
+terminal MAIS, MENOS, MULT, DIV;
+terminal MAIOR, MENOR, MAIORIGUAL, MENORIGUAL, IGUALIGUAL, DIF;
+terminal ATRIB;
+terminal Double NUMBER;
+terminal String ID;
+
+/* NÃO TERMINAIS */
+non terminal programa, top_decls, decl, field_list;
+non terminal func_list, func, func_tipo;
+non terminal decl_list_opt, param_list_opt, param_list, arg_list_opt, arg_list;
+non terminal Double expr_list, expr_ptv, expr, factor, term;
+non terminal Double condicao, op_Relacional;
+non terminal comando, comando_if, comando_while, comando_return, declaracao, tipo;
+non terminal comando_print, comando_read, comando_call;
+non terminal else;
+
+/* ESTRUTURA DO PROGRAMA */
+programa ::=
+          KW_PROGRAM ID top_decls ABRECHAVE func_list FECHACHAVE
+        | error {: parser.defineErro("Erro no bloco principal do programa"); :}
+        ;
+
+top_decls ::=
+          top_decls decl
+        | /* vazio */
+        ;
+
+decl ::=
+          declaracao
+        | KW_FINAL tipo ID ATRIB expr PTVIRG
+        | KW_CLASS ID ABRECHAVE field_list FECHACHAVE
+        ;
+
+field_list ::=
+          field_list declaracao
+        | /* vazio */
+        ;
+
+func_list ::=
+          func_list func
+        | func
+        ;
+
+func_tipo ::=
+          tipo | KW_VOID
+        ;
+
+func ::=
+          func_tipo ID ABREPAR param_list_opt FECHAPAR decl_list_opt ABRECHAVE expr_list FECHACHAVE
+        ;
+
+param_list_opt ::=
+          param_list | /* vazio */
+        ;
+
+param_list ::=
+          param_list VIRGULA tipo ID | tipo ID
+        ;
+
+decl_list_opt ::=
+          decl_list_opt declaracao | /* vazio */
+        ;
+
+/* LISTA DE COMANDOS COM RECUPERAÇÃO */
+expr_list ::=
+          expr_list comando
+        | comando
+        | expr_list error {: /* Sincronização automática para não perder o IF/WHILE */ :}
+        ;
+
+comando ::=
+          expr_ptv | comando_return | declaracao | comando_if | comando_while
+        | comando_print | comando_read | comando_call
+        ;
+
+comando_print ::= KW_PRINT ABREPAR expr FECHAPAR PTVIRG ;
+
+comando_read ::=
+          KW_READ ABREPAR ID FECHAPAR PTVIRG
+        | KW_READ ABREPAR ID PONTO ID FECHAPAR PTVIRG
+        ;
+
+comando_call ::= ID ABREPAR arg_list_opt FECHAPAR PTVIRG ;
+
+arg_list_opt ::= arg_list | /* vazio */ ;
+
+arg_list ::= arg_list VIRGULA expr | expr ;
+
+/* ========================================================
+   REGRAS 1 E 2: IF E WHILE SEM PARÊNTESES
+   ======================================================== */
+comando_if ::=
+          KW_IF ABREPAR condicao FECHAPAR ABRECHAVE expr_list FECHACHAVE else
+        | KW_IF:k condicao ABRECHAVE expr_list FECHACHAVE else
+          {: parser.defineErro(kleft, kright, "IF sem parênteses na condição"); :}
+        | KW_IF:k error ABRECHAVE expr_list FECHACHAVE else
+          {: parser.defineErro(kleft, kright, "IF sem parênteses na condição"); :}
+        ;
+
+comando_while ::=
+          KW_WHILE ABREPAR condicao FECHAPAR ABRECHAVE expr_list FECHACHAVE
+        | KW_WHILE:k condicao ABRECHAVE expr_list FECHACHAVE
+          {: parser.defineErro(kleft, kright, "WHILE sem parênteses na condição"); :}
+        | KW_WHILE:k error ABRECHAVE expr_list FECHACHAVE
+          {: parser.defineErro(kleft, kright, "WHILE sem parênteses na condição"); :}
+        ;
+
+else ::= KW_ELSE ABRECHAVE expr_list FECHACHAVE | /* vazio */ ;
+
+/* ========================================================
+   REGRA 6: RETURN SEM PONTO E VÍRGULA
+   ======================================================== */
+comando_return ::=
+          KW_RETURN expr PTVIRG
+        | KW_RETURN:k expr error
+          {: parser.defineErro( "return sem ponto e vírgula"); :}
+        | KW_RETURN:k error
+          {: parser.defineErro(kleft, kright, "return sem ponto e vírgula"); :}
+        ;
+
+/* ========================================================
+   REGRA 5: DECLARAÇÃO DE VARIÁVEL SEM PONTO E VÍRGULA
+   ======================================================== */
+declaracao ::=
+          tipo ID PTVIRG
+        | tipo:k ID error
+          {: parser.defineErro(kleft, kright, "Declaração de variável sem ponto e vírgula"); :}
+        ;
+
+tipo ::= KW_INT | KW_DOUBLE | KW_FLOAT | ID ;
+
+/* ========================================================
+   REGRA 4: CONDIÇÃO SEM OPERADOR RELACIONAL (ex: if (x))
+   ======================================================== */
+condicao ::=
+          expr op_Relacional expr
+        | expr:e
+          {: parser.defineErro(eleft, eright, "Condição sem operador relacional - ex: if (x)"); :}
+        ;
+
+/* ========================================================
+   REGRA 3: COMANDO OU EXPRESSÃO INCOMPLETA (expr_ptv)
+   ======================================================== */
+expr_ptv ::=
+          expr PTVIRG
+        | ID ATRIB expr PTVIRG
+        | ID PONTO ID ATRIB expr PTVIRG
+        | error:k PTVIRG
+          {: parser.defineErro(kleft, kright, "Comando ou expressão incompleta"); :}
+        ;
+
+expr ::=
+          expr:e MAIS term:t {: RESULT = e + t; :}
+        | expr:e MENOS term:t {: RESULT = e - t; :}
+        | MENOS term:t {: RESULT = -t; :}
+        | term:t {: RESULT = t; :}
+        ;
+
+term ::=
+          factor:f MULT term:t {: RESULT = f * t; :}
+        | factor:f DIV term:t {: RESULT = f / t; :}
+        | factor:f {: RESULT = f; :}
+        ;
+
+factor ::=
+          NUMBER:n {: RESULT = n; :}
+        | ID ABREPAR arg_list_opt FECHAPAR {: RESULT = 0.0; :}
+        | ID {: RESULT = 0.0; :}
+        | ID PONTO ID {: RESULT = 0.0; :}
+        | ABREPAR expr:e FECHAPAR {: RESULT = e; :}
+        ;
+
+op_Relacional ::= MAIOR | MENOR | MAIORIGUAL | MENORIGUAL | IGUALIGUAL | DIF ;
